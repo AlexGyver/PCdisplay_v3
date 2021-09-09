@@ -30,12 +30,12 @@
 ## Материалы и компоненты
 ### Ссылки оставлены на магазины, с которых я закупаюсь уже не один год
 Первые ссылки - в основном магазин Great Wall, вторые - WAVGAT. Покупая в одном магазине, вы экономите на доставке!
-- Arduino NANO http://ali.ski/UNUog  http://ali.ski/yxCEf
-- Кит СВО http://ali.ski/fxrKA
-- Водяной блок на AM4 http://ali.ski/gGZDx
-- Водяные блоки для видеокарт http://ali.ski/EG3_2F  http://ali.ski/jjA-P
-- Силиконовый шнур http://ali.ski/jDN4ZQ
-- Пробка-термистор http://ali.ski/G8lNN
+- Arduino NANO https://ali.ski/AYjyvj  https://ali.ski/k1u9t
+- Кит СВО https://ali.ski/t95jf
+- Водяной блок на AM4 https://ali.ski/j9H6ND
+- Водяные блоки для видеокарт https://ali.ski/0w6RK  https://ali.ski/SZZoa
+- Силиконовый шнур https://ali.ski/TZ-5I
+- Пробка-термистор https://ali.ski/73Cl7W
 
 
 ## Вам скорее всего пригодится

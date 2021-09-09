@@ -14,33 +14,33 @@
 #define THERM_PIN A0
 #define RELAY_FAN 12
 #define PWM_FAN 9
+#define PWM_FAN_2 10
 
 // настройки
-#define CPU_SOURCE 19
-#define TIMEOUT 3000        // таймаут соединения, мс
+#define CPU_SOURCE 19       // источник температуры ЦП (0 или 19 для libre HM)
+#define TIMEOUT 5000        // таймаут соединения, мс
 #define TIMEOUT_P 300000    // таймаут питания, мс
 #define RESIST_10K 10000    // точное сопротивление 10к резистора (Ом)
 
 // пределы
-#define HW_TEMP_MIN 45  // мин. температура железа
-#define HW_TEMP_MAX 80  // макс. температура железа
-#define TEMP_MIN 32     // мин. температура воды
-#define TEMP_MAX 40     // макс. температура воды
-
-// у меня СВО начинает резонансить на скоростях 20-27, поэтому избегаю этот диапазон
-#define PUMP_MIN 18     // мин. сигнал помпы (при TEMP_MIN)
+#define PUMP_MIN 10     // мин. сигнал помпы (при TEMP_MIN)
 #define PUMP_MAX 95     // макс. сигнал помпы (при TEMP_MAX)
 
-#define PWM_MIN 50      // мин. сигнал вентиляторов (при TEMP_MIN)
-#define PWM_MAX 150     // макс. сигнал вентиляторов (при TEMP_MAX)
+#define PWM_MIN 200     // мин. сигнал вентиляторов (при TEMP_MIN)
+#define PWM_MAX 999     // макс. сигнал вентиляторов (при TEMP_MAX)
 
-#define TEMP_ON 34      // температура воды, выше которой включается вентилятор СВО
-#define TEMP_OFF 32     // температура воды, ниже которой выключается вентилятор СВО
+// онлайн
+#define TEMP_ON 42      // температура воды, выше которой включается вентилятор СВО
+#define TEMP_OFF 38     // температура воды, ниже которой выключается вентилятор СВО
 
-#define HW_TEMP_ON 55   // температура железа, выше которой включается вентилятор СВО
-#define HW_TEMP_OFF 48  // температура железа, ниже которой выключается вентилятор СВО
+#define HW_TEMP_MIN 50  // мин. температура железа
+#define HW_TEMP_MAX 70  // макс. температура железа
 
-#define COEF 0.3        // коэффициент плавности изменения температуры
+// оффлайн
+//#define TEMP_MIN 35   // мин. температура воды (оффлайн)
+//#define TEMP_MAX 47   // макс. температура воды (оффлайн)
+
+#define COEF 0.05        // коэффициент плавности изменения температуры
 
 // ---- термистор ----
 // GND --- термистор --- A0 --- 10к --- 5V
@@ -53,15 +53,19 @@
 #include <DigiPotX9Cxxx.h>
 DigiPot pot(POT_INC, POT_UD, POT_CS);
 
-#include <Wire.h>
+#include "thermistorMinim.h"
+thermistor thermWater(THERM_PIN, RESIST_BASE, B_COEF, TEMP_BASE, RESIST_10K);
+thermistor thermPS(A1, 10000, 3950, 25, 10000);
+
 #include <LiquidCrystal_I2C.h>
 LiquidCrystal_I2C lcd(0x3f, 16, 2);
 //LiquidCrystal_I2C lcd(0x27, 16, 2);
 
-#include <PWM.h>
+//#include <PWM.h>
 
 int pumpSpeed;
 int waterTemp;
+int PStemp;
 
 boolean onlineFlag;
 boolean powerFlag;
@@ -89,14 +93,14 @@ byte drop_char[] = {B00100, B01110, B01110, B11111, B11111, B11111, B01110, B000
 void setup() {
   Serial.begin(9600);
   pinMode(13, OUTPUT);
-  InitTimersSafe();
-  SetPinFrequencySafe(9, 25000);
 
   pinMode(RELAY_FAN, OUTPUT);
   pinMode(PWM_FAN, OUTPUT);
+  pinMode(PWM_FAN_2, OUTPUT);
 
   digitalWrite(RELAY_FAN, HIGH);
-  pwmWrite(PWM_FAN, 50);
+  PWM_20KHZ_D9(50);
+  PWM_20KHZ_D10(50);
 
   pumpSpeed = PUMP_MIN;
   pot.set(PUMP_MIN);
@@ -117,10 +121,6 @@ void setup() {
 }
 
 void loop() {
-  /*lcd.clear();
-    lcd.home();
-    lcd.print(millis());
-    delay(500);*/
   parsing();
   calcAndDisp();
   setPotSmooth();
@@ -138,57 +138,68 @@ void calcAndDisp() {
       lcd.noBacklight();
     }
 
-    waterTemp = getThermTemp();
+    waterTemp = thermWater.getTempAverage();
 
+    // онлайн
     if (onlineFlag) {
       maxTemp += (float)(max(PCdata[CPU_SOURCE], PCdata[1]) - maxTemp) * COEF;
-      if (maxTemp > HW_TEMP_ON) {
-        pumpSpeed = map(maxTemp, HW_TEMP_MIN, HW_TEMP_MAX, PUMP_MIN, PUMP_MAX);
-        digitalWrite(RELAY_FAN, 1);
-        pwmWrite(PWM_FAN, map(maxTemp, HW_TEMP_MIN, HW_TEMP_MAX, PWM_MIN, PWM_MAX));
-      } else if (maxTemp < HW_TEMP_OFF) {
-        pumpSpeed = map(maxTemp, HW_TEMP_MIN, HW_TEMP_MAX, PUMP_MIN, PUMP_MAX);
-        digitalWrite(RELAY_FAN, 0);
-        pwmWrite(PWM_FAN, 5);
-      }
-      pumpSpeed = constrain(pumpSpeed, PUMP_MIN, PUMP_MAX);
-    } else {      
-      if (waterTemp > TEMP_ON) {
-        digitalWrite(RELAY_FAN, 1);
-        pwmWrite(PWM_FAN, map(waterTemp, TEMP_MIN, TEMP_MAX, PWM_MIN, PWM_MAX));
-      } else if (waterTemp < TEMP_OFF) {
-        //pumpSpeed = PUMP_MIN;
-        digitalWrite(RELAY_FAN, 0);
-        pwmWrite(PWM_FAN, 5);
-      }
-      pumpSpeed = 50;
+      int pwmSpeed = map(maxTemp, HW_TEMP_MIN, HW_TEMP_MAX, PWM_MIN, PWM_MAX);
+      pwmSpeed = constrain(pwmSpeed, PWM_MIN, PWM_MAX);
+      PWM_20KHZ_D9(pwmSpeed);
+      pumpSpeed = map(maxTemp, HW_TEMP_MIN, HW_TEMP_MAX, PUMP_MIN, PUMP_MAX);
+
+      if (waterTemp > TEMP_ON) digitalWrite(RELAY_FAN, 1);
+      else if (waterTemp < TEMP_OFF) digitalWrite(RELAY_FAN, 0);
+
+      // оффлайн - вент всегда включен
+    } else {
+      digitalWrite(RELAY_FAN, 1);
+      PWM_20KHZ_D9(PWM_MAX);
+      if (waterTemp < 30) pumpSpeed = 20;
+      else pumpSpeed = 70;
+      //pumpSpeed = map(waterTemp, TEMP_MIN, TEMP_MAX, PUMP_MIN, PUMP_MAX);
     }
-    printData();
+    pumpSpeed = constrain(pumpSpeed, PUMP_MIN, PUMP_MAX);
+    //if (pumpSpeed > 20 && pumpSpeed < 35) pumpSpeed = 20;
+
     pinState = !pinState;
     digitalWrite(13, pinState);
+
+    // вентилятор бп
+    PStemp = thermPS.getTempAverage();
+    int PSpwm = map(PStemp, 30, 45, 100, 800);
+    PSpwm = constrain(PSpwm, 100, 800);
+    PWM_20KHZ_D10(PSpwm);
+
+    printData();
   }
 }
 
-float potVal = 0;
+int potVal = 0;
 void setPotSmooth() {
   static uint32_t potTmr;
-  if (millis() - potTmr > 50) {
-    potVal += (pumpSpeed - potVal) * 0.005;
-    pot.set(round(potVal));
+  if (millis() - potTmr > 100) {
+    potTmr = millis();
+    if (potVal != pumpSpeed) potVal += (potVal < pumpSpeed) ? 1 : -1;
+    pot.set(potVal);
   }
 }
 
-float getThermTemp() {
-  long rawAnalog = 0;
-  for (byte i = 0; i < 20; i++) {
-    rawAnalog += analogRead(THERM_PIN);
-  }
-  rawAnalog /= 20;
-  float thermistor = 0;
-  thermistor = RESIST_10K / ((float)1023 / rawAnalog - 1);
-  thermistor /= RESIST_BASE;                        // (R/Ro)
-  thermistor = log(thermistor) / B_COEF;            // 1/B * ln(R/Ro)
-  thermistor += (float)1.0 / (TEMP_BASE + 273.15);  // + (1/To)
-  thermistor = (float)1.0 / thermistor - 273.15;    // инвертируем и конвертируем в градусы по Цельсию
-  return thermistor;
+void PWM_20KHZ_D9(int duty) {
+  TCCR1A = 0b10100010;
+  TCCR1B = 0b00011001;
+  ICR1H = 3;    // highByte(799)
+  ICR1L = 31;   // lowByte(799)
+  duty = map(duty, 0, 1023, 0, 799);
+  OCR1AH = highByte(duty);
+  OCR1AL = lowByte(duty);
+}
+void PWM_20KHZ_D10(int duty) {
+  TCCR1A = 0b10100010;
+  TCCR1B = 0b00011001;
+  ICR1H = 3;    // highByte(799)
+  ICR1L = 31;   // lowByte(799)
+  duty = map(duty, 0, 1023, 0, 799);
+  OCR1BH = highByte(duty);
+  OCR1BL = lowByte(duty);
 }

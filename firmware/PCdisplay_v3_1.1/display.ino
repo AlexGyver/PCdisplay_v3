@@ -26,6 +26,7 @@ void printData() {
   lcd.write(0);
   if (onlineFlag) {
     lcd.print(PCdata[CPU_SOURCE]);
+    //lcd.print(maxTemp);
     lcd.write(223);
     lcd.print(PCdata[4]);
     if (PCdata[4] < 10) lcd.print("%  ");
@@ -51,9 +52,10 @@ void printData() {
   if (onlineFlag) {
     lcd.print(PCdata[6]);
     lcd.print("%");
-    lcd.print("-");
-    lcd.print(PCdata[7]);
-    lcd.print("%  ");
+    lcd.print(" ");
+    lcd.print(/*PCdata[7]*/PStemp);
+    lcd.write(223);
+    //lcd.print("%  ");
   } else {
     lcd.print(F("---    "));
   }
@@ -62,7 +64,7 @@ void printData() {
   lcd.write(3);
   lcd.print(waterTemp);
   lcd.write(223);
-  lcd.print(round(potVal));
+  
+  lcd.print(potVal);
   lcd.print("%");
-  if (round(potVal) < 10) lcd.print(' ');
 }
